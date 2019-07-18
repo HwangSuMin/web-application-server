@@ -1,9 +1,11 @@
 package webserver;
 
+import db.DataBase;
 import model.User;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import util.HttpRequestUtils;
+import util.IOUtils;
 
 import java.io.*;
 import java.net.Socket;
@@ -36,36 +38,95 @@ public class RequestHandler extends Thread {
             }
 
             String[] tokens = line.split(" ");
+            String method = tokens[0];
             String url = tokens[1];
+            int contentLength = 0;
 
             while (!line.equals("")) {
                 line = br.readLine();
                 log.debug("header : {}", line);
+
+                if (line.contains("Content-Length")) {
+                    contentLength = getContentLength(line);
+                }
             }
 
-            if (url.startsWith("/user/create")) {
-                String queryString = url.substring(url.indexOf("?") + 1);
-                Map<String, String> params = HttpRequestUtils.parseQueryString(queryString);
+//            if (url.startsWith("/user/create") && method.equals("GET")) {
+//                String queryString = url.substring(url.indexOf("?") + 1);
+//                Map<String, String> params = HttpRequestUtils.parseQueryString(queryString);
+//                User user = new User(params.get("userId"), params.get("password"), params.get("name"), params.get("email"));
+//                log.debug("User : {}", user);
+//            }
+            if (url.startsWith("/user/create") && method.equals("POST")) {
+                String body = IOUtils.readData(br, contentLength);
+                Map<String, String> params = HttpRequestUtils.parseQueryString(body);
                 User user = new User(params.get("userId"), params.get("password"), params.get("name"), params.get("email"));
+                DataBase.addUser(user);
                 log.debug("User : {}", user);
+                DataOutputStream dos = new DataOutputStream(out);
+                response302Header(dos, "/index.html");
+            }
+            else if (url.startsWith("/user/login") && method.equals("POST")) {
+                String body = IOUtils.readData(br, contentLength);
+                Map<String, String> params = HttpRequestUtils.parseQueryString(body);
+                User user = DataBase.findUserById(params.get("userId"));
+                boolean isSuccess = (user != null && user.getPassword().equals(params.get("password")));
+                log.debug("Login : {}", isSuccess);
+                DataOutputStream dos = new DataOutputStream(out);
+                if (isSuccess) {
+                    response302LoginSuccessHeader(dos);
+                }
+                else {
+                    responseResource(dos, "/user/login_failed.html");
+                }
             }
             else {
-                DataOutputStream dos = new DataOutputStream(out);
-                File requestFile = new File("./webapp" + url);
-                byte[] body = Files.readAllBytes(requestFile.toPath());
-                response200Header(dos, body.length);
-                responseBody(dos, body);
+                responseResource(out, url);
             }
         } catch (IOException e) {
             log.error(e.getMessage());
         }
     }
 
+    private int getContentLength(String line) {
+        String[] headerTokens = line.split(":");
+        return Integer.parseInt(headerTokens[1].trim());
+    }
+
+    private void responseResource(OutputStream out, String url) throws IOException {
+        DataOutputStream dos = new DataOutputStream(out);
+        File requestFile = new File("./webapp" + url);
+        byte[] body = Files.readAllBytes(requestFile.toPath());
+        response200Header(dos, body.length);
+        responseBody(dos, body);
+    }
+
     private void response200Header(DataOutputStream dos, int lengthOfBodyContent) {
         try {
             dos.writeBytes("HTTP/1.1 200 OK \r\n");
-            dos.writeBytes("Content-Type: text/html;charset=utf-8\r\n");
-            dos.writeBytes("Content-Length: " + lengthOfBodyContent + "\r\n");
+            dos.writeBytes("Content-Type: text/html;charset=utf-8 \r\n");
+            dos.writeBytes("Content-Length: " + lengthOfBodyContent + " \r\n");
+            dos.writeBytes("\r\n");
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    private void response302Header(DataOutputStream dos, String url) {
+        try {
+            dos.writeBytes("HTTP/1.1 302 Found \r\n");
+            dos.writeBytes("Location: " + url + " \r\n");
+            dos.writeBytes("\r\n");
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    private void response302LoginSuccessHeader(DataOutputStream dos) {
+        try {
+            dos.writeBytes("HTTP/1.1 302 Found \r\n");
+            dos.writeBytes("Set-Cookie: logined=true \r\n");
+            dos.writeBytes("Location: /index.html \r\n");
             dos.writeBytes("\r\n");
         } catch (IOException e) {
             log.error(e.getMessage());

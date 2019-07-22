@@ -11,6 +11,7 @@ import java.io.*;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.util.Collection;
 import java.util.Map;
 
 public class RequestHandler extends Thread {
@@ -41,6 +42,7 @@ public class RequestHandler extends Thread {
             String method = tokens[0];
             String url = tokens[1];
             int contentLength = 0;
+            boolean logined = false;
 
             while (!line.equals("")) {
                 line = br.readLine();
@@ -48,6 +50,9 @@ public class RequestHandler extends Thread {
 
                 if (line.contains("Content-Length")) {
                     contentLength = getContentLength(line);
+                }
+                else if (line.contains("Cookie")) {
+                    logined = isLogin(line);
                 }
             }
 
@@ -80,12 +85,56 @@ public class RequestHandler extends Thread {
                     responseResource(dos, "/user/login_failed.html");
                 }
             }
+            else if (url.startsWith("/user/list") && method.equals("GET")) {
+                if (!logined) {
+                    responseResource(out, "/user/login.html");
+                    return;
+                }
+                DataOutputStream dos = new DataOutputStream(out);
+                StringBuilder userList = new StringBuilder();
+                Collection<User> users = DataBase.findAll();
+                userList.append("<table border='1'>");
+                for (User user : users) {
+                    userList.append("<tr>")
+                            .append("<td>")
+                            .append(user.getUserId())
+                            .append("</td>")
+                            .append("<td>")
+                            .append(user.getName())
+                            .append("</td>")
+                            .append("<td>")
+                            .append(user.getEmail())
+                            .append("</td>")
+                            .append("</tr>");
+                }
+                userList.append("</table>");
+                byte[] body = userList.toString().getBytes();
+                response200Header(dos, body.length);
+                responseBody(dos, body);
+            }
+            else if (url.endsWith(".css")) {
+                DataOutputStream dos = new DataOutputStream(out);
+                File requestFile = new File("./webapp" + url);
+                byte[] body = Files.readAllBytes(requestFile.toPath());
+                response200CssHeader(dos, body.length);
+                responseBody(dos, body);
+            }
             else {
                 responseResource(out, url);
             }
         } catch (IOException e) {
             log.error(e.getMessage());
         }
+    }
+
+    private boolean isLogin(String line) {
+        String[] headerTokens = line.split(":");
+        Map<String, String> cookies = HttpRequestUtils.parseCookies(headerTokens[1].trim());
+        String value = cookies.get("logined");
+        if (value == null) {
+            return false;
+        }
+        return Boolean.parseBoolean(value);
     }
 
     private int getContentLength(String line) {
@@ -105,6 +154,17 @@ public class RequestHandler extends Thread {
         try {
             dos.writeBytes("HTTP/1.1 200 OK \r\n");
             dos.writeBytes("Content-Type: text/html;charset=utf-8 \r\n");
+            dos.writeBytes("Content-Length: " + lengthOfBodyContent + " \r\n");
+            dos.writeBytes("\r\n");
+        } catch (IOException e) {
+            log.error(e.getMessage());
+        }
+    }
+
+    private void response200CssHeader(DataOutputStream dos, int lengthOfBodyContent) {
+        try {
+            dos.writeBytes("HTTP/1.1 200 OK \r\n");
+            dos.writeBytes("Content-Type: text/css \r\n");
             dos.writeBytes("Content-Length: " + lengthOfBodyContent + " \r\n");
             dos.writeBytes("\r\n");
         } catch (IOException e) {

@@ -17,37 +17,35 @@ import java.util.Map;
 public class HttpRequest {
     private static final Logger log = LoggerFactory.getLogger(HttpRequest.class);
 
-    private BufferedReader br;
-    private String method;
-    private String url;
-    private String httpVersion;
-    private Map<String, String> headers;
-    private Map<String, String> parameters;
+    private RequestLine requestLine;
+    private Map<String, String> headers = new HashMap<>();
+    private Map<String, String> params = new HashMap<>();
 
     public HttpRequest(InputStream in) {
-        this.br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
-        this.headers = new HashMap<>();
-        this.parameters = new HashMap<>();
-        this.parseRequest();
-    }
-
-    private void parseRequest() {
         try {
-            String line = this.br.readLine();
+            BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
+            String line = br.readLine();
+
             if (line == null) {
                 return;
             }
 
-            parseRequestLine(line);
+            requestLine = new RequestLine(line);
 
-            line = this.br.readLine();
+            line = br.readLine();
             while (!line.equals("")) {
-                parseHeader(line);
-                line = this.br.readLine();
+                log.debug("header : {}", line);
+                String[] tokens = line.split(":");
+                headers.put(tokens[0].trim(), tokens[1].trim());
+                line = br.readLine();
             }
 
-            if (this.method.equals("POST")) {
-                parseBody();
+            if (getMethod().isPost()) {
+                String body = IOUtils.readData(br, Integer.parseInt(headers.get("Content-Length")));
+                params = HttpRequestUtils.parseQueryString(body);
+            }
+            else {
+                params = requestLine.getParams();
             }
 
         } catch (IOException e) {
@@ -55,49 +53,19 @@ public class HttpRequest {
         }
     }
 
-    private void parseBody() throws IOException {
-        int contentLength = Integer.parseInt(this.headers.getOrDefault("Content-Length", "0"));
-        String body = IOUtils.readData(this.br, contentLength);
-        this.parameters.putAll(HttpRequestUtils.parseQueryString(body));
-    }
-
-    private void parseHeader(String headerLine) {
-        log.debug("header : {}", headerLine);
-        String[] headerTokens = headerLine.split(": ");
-        this.headers.put(headerTokens[0], headerTokens[1]);
-    }
-
-    private void parseRequestLine(String requestLine) {
-        log.debug("Request Line : {}", requestLine);
-
-        String[] requestTokens = requestLine.split(" ");
-        this.method = requestTokens[0];
-        this.httpVersion = requestTokens[2];
-
-        int indexOfQueryString = requestTokens[1].indexOf("?");
-
-        if (indexOfQueryString != -1) {
-            this.url = requestTokens[1].substring(0, indexOfQueryString);
-            this.parameters.putAll(HttpRequestUtils.parseQueryString(requestTokens[1].substring(indexOfQueryString + 1)));
-            return;
-        }
-
-        this.url = requestTokens[1];
-    }
-
-    public String getMethod() {
-        return this.method;
+    public HttpMethod getMethod() {
+        return this.requestLine.getMethod();
     }
 
     public String getPath() {
-        return this.url;
+        return this.requestLine.getPath();
     }
 
     public String getHeader(String headerName) {
         return this.headers.get(headerName);
     }
 
-    public String getParameter(String parameterName) {
-        return this.parameters.get(parameterName);
+    public String getParameter(String key) {
+        return this.params.get(key);
     }
 }

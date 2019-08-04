@@ -14,6 +14,7 @@ public class LoginController extends AbstractController {
             if (user.login(request.getParameter("password"))) {
                 HttpSession session = request.getSession();
                 session.setAttribute("user", user);
+                response.sendRedirect("/index.html");
             } else {
                 response.sendRedirect("/user/login_failed.html");
             }
